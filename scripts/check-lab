@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root" || exit 1
+
+failures=0
+control_path="src/lab02-unsafe-control.txt"
+temporary_directory=$(mktemp -d)
+
+cleanup() {
+  rm -f -- "$control_path"
+}
+
+cleanup_all() {
+  cleanup
+  rm -rf -- "$temporary_directory"
+}
+trap cleanup_all EXIT
+
+record_failure() {
+  printf 'FAIL: %s\n' "$1" >&2
+  failures=$((failures + 1))
+}
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  printf 'FAIL: gitleaks is not available; reopen this repository in its devcontainer.\n' >&2
+  exit 1
+fi
+
+if ! npm test; then
+  record_failure "npm test did not pass"
+fi
+
+if [[ ! -f lab02/findings.yml ]]; then
+  record_failure "lab02/findings.yml is missing"
+elif ! node - <<'NODE'
+const fs = require("node:fs");
+
+const expected = [
+  {
+    id: "fixture-token",
+    path: "tests/fixtures/service-response.json",
+    rule: "generic-api-key",
+    scope: "tree-and-history",
+  },
+  {
+    id: "retired-debug-key",
+    path: "notes/retired-debug.env",
+    rule: "aws-access-token",
+    scope: "history-only",
+  },
+];
+
+const text = fs.readFileSync("lab02/findings.yml", "utf8");
+const entries = [];
+let current;
+
+for (const line of text.split(/\r?\n/)) {
+  const item = line.match(/^\s*-\s+([a-z]+):\s*(.*?)\s*$/);
+  const field = line.match(/^\s+([a-z]+):\s*(.*?)\s*$/);
+  if (item) {
+    current = { [item[1]]: item[2] };
+    entries.push(current);
+  } else if (field && current) {
+    current[field[1]] = field[2];
+  } else if (line.trim() && !line.trimStart().startsWith("#")) {
+    process.exit(1);
+  }
+}
+
+if (JSON.stringify(entries) !== JSON.stringify(expected)) {
+  process.exit(1);
+}
+NODE
+then
+  record_failure "lab02/findings.yml does not contain the two expected observations"
+fi
+
+if ! gitleaks dir --config .gitleaks.toml --no-banner .; then
+  record_failure "the configured tree scan reports a finding in the submitted tree"
+fi
+
+control_part_a="a84f0c27e9b631d2"
+control_part_b="f5804ac713de9b26"
+printf 'service_token = "svc_live_%s%s"\n' "$control_part_a" "$control_part_b" > "$control_path"
+control_report="$temporary_directory/control-report.json"
+if gitleaks dir --config .gitleaks.toml --no-banner --report-format json --report-path "$control_report" .; then
+  record_failure "the configured tree scan accepted the unsafe control"
+elif ! grep -q 'src/lab02-unsafe-control.txt' "$control_report"; then
+  record_failure "the unsafe control failed the scan for an unexpected reason"
+fi
+cleanup
+
+history_report="$temporary_directory/history-report.json"
+if gitleaks git --config .gitleaks.toml --no-banner --report-format json --report-path "$history_report" --log-opts="--all" .; then
+  record_failure "the configured history scan no longer reports the retired debug key"
+elif ! grep -q 'notes/retired-debug.env' "$history_report" || ! grep -q 'aws-access-token' "$history_report"; then
+  record_failure "the history scan did not identify the retired debug key"
+fi
+if ((failures > 0)); then
+  printf '\nLab check failed with %d problem(s).\n' "$failures" >&2
+  exit 1
+fi
+
+printf '\nAll Lab 2 checks passed.\n'

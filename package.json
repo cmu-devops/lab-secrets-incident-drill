@@ -1,0 +1,13 @@
+{
+  "name": "lab-secrets-incident-drill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small fixture-driven service for practicing secrets scanning and precise exceptions",
+  "main": "src/response.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "Secrets Scanning Lab",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "postCreateCommand": "npm ci"
+}
