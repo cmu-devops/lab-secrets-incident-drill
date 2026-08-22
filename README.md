@@ -2,9 +2,10 @@
 
 This small fixture-driven service is the starter repository for the secrets scanning lab.
 
-Open the repository in its devcontainer, then establish the baseline:
+Open the repository in its devcontainer, then confirm the provided tools and establish the baseline:
 
 ```console
+gitleaks version
 npm test
 ```
 
